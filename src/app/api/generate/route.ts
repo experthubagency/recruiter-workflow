@@ -57,7 +57,7 @@ async function fetchLiveWebResearch(queryText: string): Promise<string> {
       : `https://s.jina.ai/${encodeURIComponent(queryText.slice(0, 120) + " company executive overview")}`;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4500);
+    const timeout = setTimeout(() => controller.abort(), 4000);
 
     const res = await fetch(target, {
       headers: { Accept: "text/plain" },
@@ -67,7 +67,7 @@ async function fetchLiveWebResearch(queryText: string): Promise<string> {
 
     if (!res.ok) return "";
     const text = await res.text();
-    return text.slice(0, 2200);
+    return text.slice(0, 2000);
   } catch {
     return "";
   }
@@ -122,34 +122,59 @@ ${liveResearchContext ? `LIVE WEB RESEARCH CONTEXT:\n${liveResearchContext}\n` :
 FORMAT REQUIREMENT:
 You MUST return your response in this exact format with these exact tags:
 [SUBJECT]
-(Write the exact email subject line here - e.g., Confidential Executive Search | Role | Compensation/Location)
+(Write the exact email subject line here)
 [/SUBJECT]
 [BODY]
-(Write the complete email body or review here, ready to copy and send without placeholders)
+(Write the complete email body or review here, ready to copy and send)
 [/BODY]`;
 
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "deepseek-ai/DeepSeek-V4-Flash-0731",
-        messages: [
-          { role: "system", content: systemInstruction },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.4,
-      }),
-    });
+    // Multi-Model Fallback Array to bypass concurrency limits
+    const modelsToTry = [
+      "MiniMaxAI/MiniMax-M2.7",
+      "deepseek-ai/DeepSeek-V4-Flash-0731",
+      "zai-org/GLM-5.3-Flash",
+      "deepseek-chat",
+    ];
 
-    const data = await response.json();
+    let response: Response | null = null;
+    let data: any = null;
 
-    if (!response.ok) {
+    for (const modelName of modelsToTry) {
+      try {
+        const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: modelName,
+            messages: [
+              { role: "system", content: systemInstruction },
+              { role: "user", content: userPrompt },
+            ],
+            temperature: 0.4,
+          }),
+        });
+
+        const json = await res.json();
+        if (res.ok) {
+          response = res;
+          data = json;
+          break;
+        } else {
+          // If concurrency error, try next model in loop
+          console.warn(`Model ${modelName} busy, trying fallback...`);
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    if (!response || !data || !data.choices) {
       return NextResponse.json(
-        { error: data?.error?.message || `API Error (${response.status})` },
-        { status: response.status }
+        { error: "All AI models are currently at concurrency capacity. Please try again in a few seconds." },
+        { status: 503 }
       );
     }
 
