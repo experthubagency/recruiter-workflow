@@ -135,7 +135,7 @@ You MUST return your response in this exact format with these exact tags:
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: "deepseek-ai/DeepSeek-V4-Flash-0731",
         messages: [
           { role: "system", content: systemInstruction },
           { role: "user", content: userPrompt },
