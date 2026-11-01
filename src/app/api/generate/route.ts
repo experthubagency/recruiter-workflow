@@ -5,8 +5,8 @@ const STEP_PROMPTS: Record<number, string> = {
 GOAL: Write a discreet, peer-level executive outreach email based on the candidate's exact career trajectory.
 RULES:
 - Open with a warm greeting ("Hello [First Name],") and introduce the recruiter using the exact Recruiter Details provided.
-- Reference 2-3 specific career milestones, companies, and scope progressions from their profile to prove this is not a mass blast.
-- Keep the mandate confidential/discreet—do not oversell with hype adjectives.
+- Reference 2-3 specific career milestones, companies, and scope progressions from their profile to prove this is bespoke.
+- Keep the mandate confidential and discreet—no hype or clichés.
 - Close with a low-friction question asking if they are open to receiving a concise overview of the mandate and its executive scope.
 - Sign off with the Recruiter Details.`,
 
@@ -19,10 +19,10 @@ RULES:
 - Ask for their updated CV/resume or availability for a brief confidential alignment call.`,
 
   3: `You are an elite Executive Search Consultant writing a Step 3 CV / Next Stage progression email.
-GOAL: Extract the company, role, location, and reporting details from the Step 2 text and move the candidate toward CV submission and formal alignment.
+GOAL: Extract the company, role, location, and reporting details from the Step 2 text, incorporate live company research if available, and move the candidate toward CV submission.
 RULES:
-- Acknowledge the candidate's latest reply and address any specific questions or nuances they raised.
-- Synthesize the opportunity context seamlessly (incorporating deep domain/company context).
+- Acknowledge the candidate's latest reply and directly answer any questions or nuances they raised.
+- Synthesize the opportunity context and live company research seamlessly.
 - Clearly outline the next step: securing their latest CV/resume to prepare their formal executive profile for stakeholder review.`,
 
   4: `You are an elite Executive Search Partner conducting a Step 4 Executive Resume Review.
@@ -37,21 +37,46 @@ RULES:
 GOAL: Formally confirm to the candidate that their executive resume and briefing profile have been submitted to the hiring manager and key stakeholders.
 RULES:
 - Confirm formal submission of their dossier for the specific role and company identified in the Step 2/opportunity text.
-- Summarize the core positioning pillars you emphasized to the client boards/stakeholders based on their CV and additional verified details.
+- Summarize the core positioning pillars you emphasized to the client stakeholders based on their CV and additional verified details.
 - Set clear expectations on feedback timelines and next-stage interview preparation.`,
 
   6: `You are an elite Executive Search Consultant writing a Step 6 Candidate Progression & Document Request.
 GOAL: Congratulate/update the candidate on their confirmed progression to the next stage and issue a personalized Four-Document Verification Request.
 RULES:
 - Confirm the exact progression stage and stakeholder feedback using ONLY the verified progression details provided.
-- Clearly request the 4 required executive onboarding/verification documents tailored to the mandate (e.g., 1. Updated Executive CV/Bio, 2. Proof of Identity/Right to Work, 3. Executive References/ Stakeholder List, 4. Compensation & Notice Period Verification / Reimbursement details if applicable).
+- Clearly request the 4 required executive onboarding/verification documents tailored to the mandate (1. Updated Executive CV/Bio, 2. Proof of Identity/Right to Work, 3. Executive References/Stakeholder List, 4. Compensation & Notice Period Verification / Reimbursement details if verified).
 - Maintain a polished, white-glove executive search tone.`
 };
+
+async function fetchLiveWebResearch(queryText: string): Promise<string> {
+  if (!queryText || queryText.trim().length < 3) return "";
+  try {
+    const urlMatch = queryText.match(/https?:\/\/[^\s)]+/i);
+    const target = urlMatch
+      ? `https://r.jina.ai/${urlMatch[0]}`
+      : `https://s.jina.ai/${encodeURIComponent(queryText.slice(0, 120) + " company executive overview")}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4500);
+
+    const res = await fetch(target, {
+      headers: { Accept: "text/plain" },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) return "";
+    const text = await res.text();
+    return text.slice(0, 2200);
+  } catch {
+    return "";
+  }
+}
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { step, inputs } = body;
+    const { step, inputs, enableWebResearch } = body;
 
     const apiKey = process.env.DEEPSEEK_API_KEY;
     const baseUrl = process.env.DEEPSEEK_BASE_URL || "https://inference.dahl.global/v1";
@@ -61,6 +86,17 @@ export async function POST(req: Request) {
         { error: "Missing DEEPSEEK_API_KEY in Vercel Environment Variables." },
         { status: 500 }
       );
+    }
+
+    let liveResearchContext = "";
+    if (enableWebResearch || Number(step) === 3 || inputs.targetCompany) {
+      const searchTarget =
+        inputs.targetCompany ||
+        inputs.opportunityDetails?.slice(0, 200) ||
+        "";
+      if (searchTarget) {
+        liveResearchContext = await fetchLiveWebResearch(searchTarget);
+      }
     }
 
     const systemInstruction = STEP_PROMPTS[Number(step)] || STEP_PROMPTS[1];
@@ -81,11 +117,12 @@ OPPORTUNITY / MANDATE / STEP 2 DETAILS:
 ${inputs.opportunityDetails || "Not provided"}
 
 ${inputs.additionalDetails ? `ADDITIONAL VERIFIED DETAILS / PROGRESSION:\n${inputs.additionalDetails}\n` : ""}
+${liveResearchContext ? `LIVE WEB RESEARCH CONTEXT:\n${liveResearchContext}\n` : ""}
 
 FORMAT REQUIREMENT:
 You MUST return your response in this exact format with these exact tags:
 [SUBJECT]
-(Write the exact email subject line here - concise, executive format, e.g., Confidential Executive Search | Role | Compensation/Location)
+(Write the exact email subject line here - e.g., Confidential Executive Search | Role | Compensation/Location)
 [/SUBJECT]
 [BODY]
 (Write the complete email body or review here, ready to copy and send without placeholders)
@@ -117,6 +154,11 @@ You MUST return your response in this exact format with these exact tags:
     }
 
     const rawText: string = data.choices?.[0]?.message?.content || "";
+    const usage = data.usage || {
+      prompt_tokens: Math.round(userPrompt.length / 4),
+      completion_tokens: Math.round(rawText.length / 4),
+      total_tokens: Math.round((userPrompt.length + rawText.length) / 4),
+    };
 
     let subject = "";
     let messageBody = rawText;
@@ -138,7 +180,12 @@ You MUST return your response in this exact format with these exact tags:
       }
     }
 
-    return NextResponse.json({ subject, body: messageBody });
+    return NextResponse.json({
+      subject,
+      body: messageBody,
+      usage,
+      webResearchUsed: Boolean(liveResearchContext),
+    });
   } catch (err: any) {
     return NextResponse.json(
       { error: err?.message || "Internal server error" },
