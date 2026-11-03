@@ -195,7 +195,7 @@ export async function POST(req: Request) {
     const { step, inputs, enableWebResearch } = body;
     const stepNum = Number(step) || 1;
 
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
         { error: "Missing GEMINI_API_KEY in Vercel Environment Variables." },
@@ -242,7 +242,7 @@ Return your response in this EXACT structure with no conversational filler outsi
 (Write ONLY the complete email body or review here — no introductory commentary)
 [/BODY]`;
 
-    // Google AI Studio OpenAI-compatible endpoint for Gemini 2.5 Flash
+    // Google AI Studio OpenAI-compatible endpoint using updated gemini-3.8-flash model
     const endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
     const controller = new AbortController();
@@ -255,7 +255,7 @@ Return your response in this EXACT structure with no conversational filler outsi
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.8-flash",
         messages: [
           { role: "system", content: systemInstruction },
           { role: "user", content: userPrompt },
@@ -327,7 +327,7 @@ Return your response in this EXACT structure with no conversational filler outsi
     return NextResponse.json({
       subject,
       body: messageBody,
-      modelUsed: "Gemini 2.5 Flash",
+      modelUsed: "Gemini 3.8 Flash",
       usage,
       webResearchUsed: Boolean(liveResearchContext),
     });
