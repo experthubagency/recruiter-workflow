@@ -195,7 +195,7 @@ export async function POST(req: Request) {
     const { step, inputs, enableWebResearch } = body;
     const stepNum = Number(step) || 1;
 
-    const apiKey = process.env.GEMINIB_API_KEY || process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
         { error: "Missing GEMINI_API_KEY in Vercel Environment Variables." },
